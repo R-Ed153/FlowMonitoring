@@ -38,9 +38,9 @@ void setup()
 {
   Serial.begin(9600);
   //initializing the OLED display
-  initializeDisplay();
+  //initializeDisplay();
  
-  displayText("Hello World!",position, 8);
+  //displayText("Hello World!",position, 8);
   
   //initializing the pressure sensor
   attachInterrupt(digitalPinToInterrupt(flowSensorPin), pulseCounter, RISING);
@@ -53,8 +53,10 @@ void loop()
     flowMilliLitres = measureFlow(); //flow in mL/sec
     totalMilliLitres += flowMilliLitres;
   }
-  pressure = measurePressure(); //pressure in kPas
-  temperatureC = measureTemperature(); //temperature in Celsius
+  //pressure = measurePressure(); //pressure in kPas
+  //temperatureC = measureTemperature(); //temperature in Celsius
+  Serial.println("Flow: " + String(flowMilliLitres) + " mL/sec");
+  delay(1000);
 }
 
 void pulseCounter()
