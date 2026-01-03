@@ -1,82 +1,121 @@
 #include <Arduino.h>
+#define PRESSURE_SENSOR_PIN A1
+#define FLOWRATE_SENSOR_PIN 2
 
-int sensorPin = 2; // Pin connected to the flow sensor
-float calibrationFactor = 4.5;
+struct SensorData
+{
+  char name[20];
+  float value;
+  char unit[10];
+  float calibrationFactor;
+  float (*measureFunction)(float calibrationFactor);
+};
+
+// Global variables
 volatile byte pulseCount = 0;
-float flowRate = 0.0;
-unsigned int flowMilliLitres = 0;
-unsigned long totalMilliLitres = 0;
 unsigned long oldTime = 0;
+unsigned long totalMilliLitres = 0;
 
-int statusLed = 13; // Status LED pin
+// Sensor calibration factors
+float flowRateCalibrationFactor = 4.5;
+float pressureCalibrationFactor = 0.3;
 
-void pulseCounter();
-void updateFlowParameters(float calibrationFactor, unsigned int &flowMilliLitres, unsigned long &totalMilliLitres);
-void logFlowData();
+// Measurement functions prototypes
+// Flowrate and volume
 float measureFlowRate(float calibrationFactor);
+float measureFlowVolume(float calibrationFactor);
+float measureTotalVolume(float calibrationFactor);
+// Pressure
+float measurePressure(float calibrationFactor);
+
+void updateParameter(SensorData &parameterSet);
+
+// Logging functions prototypes
+void logMeasuredParameter(SensorData &parameterSet);
+
+// Interrupt Service Routine
+void pulseCounter();
+
+SensorData flowRate = {"Flow Rate", 0.0, "L/min", flowRateCalibrationFactor, measureFlowRate};
+SensorData flowVolume = {"Flow Volume", 0.0, "mL", 0.0, measureFlowVolume};
+SensorData totalVolume = {"Total Volume", 0.0, "L/min", 0.0, measureTotalVolume};
+SensorData pressure = {"Pressure", 0.0, "MPa", pressureCalibrationFactor, measurePressure};
 
 void setup()
 {
-
   // Initialize a serial connection for reporting values to the host
   Serial.begin(9600);
-  // Set up the status LED line as an output
-  pinMode(statusLed, OUTPUT);
-  digitalWrite(statusLed, HIGH); // We have an active-low LED attached
-  pinMode(sensorPin, INPUT);
-  // The Hall-effect sensor is connected to pin 2 which uses interrupt 0.
-  // Configured to trigger on a FALLING state change (transition from HIGH
-  // state to LOW state)
-  attachInterrupt(digitalPinToInterrupt(sensorPin), pulseCounter, FALLING);
+  // Configure sensor pins
+  pinMode(FLOWRATE_SENSOR_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(FLOWRATE_SENSOR_PIN), pulseCounter, FALLING);
+  pinMode(PRESSURE_SENSOR_PIN, INPUT);
 }
 
-/**
- * Main program loop
- */
 void loop()
 {
-  updateFlowParameters(calibrationFactor, flowMilliLitres, totalMilliLitres);
-  logFlowData();
+  updateParameter(pressure);
+  updateParameter(flowRate);
+  updateParameter(flowVolume);
+  updateParameter(totalVolume);
+  Serial.println("-----------------------");
+  logMeasuredParameter(pressure);
+  logMeasuredParameter(flowRate);
+  logMeasuredParameter(flowVolume);
+  logMeasuredParameter(totalVolume);
+
   delay(3000);
-}
-
-
-
-void updateFlowParameters(float calibrationFactor, unsigned int &flowMilliLitres, unsigned long &totalMilliLitres)
-{
-  Serial.println("Updating flow rate parameters...");
-  if ((millis() - oldTime) >= 1000)
-  {
-    flowRate = measureFlowRate(calibrationFactor);
-    flowMilliLitres = (flowRate / 60) * 1000;
-    totalMilliLitres += flowMilliLitres;
-    oldTime = millis();
-  }
 }
 
 float measureFlowRate(float calibrationFactor)
 {
-  detachInterrupt(digitalPinToInterrupt(sensorPin));
-  flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / calibrationFactor;
-  attachInterrupt(digitalPinToInterrupt(sensorPin), pulseCounter, FALLING);
-  pulseCount = 0;
+  detachInterrupt(digitalPinToInterrupt(FLOWRATE_SENSOR_PIN));
+  float flowRate = 0.0;
+  if (millis() - oldTime > 1000)
+  {
+    flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / calibrationFactor;
+    attachInterrupt(digitalPinToInterrupt(FLOWRATE_SENSOR_PIN), pulseCounter, FALLING);
+    pulseCount = 0;
+    oldTime = millis();
+  }
   return flowRate;
 }
 
-//Interrupt Service Routine
-void pulseCounter()
+float measureFlowVolume(float calibrationFactor)
 {
-  // Increment the pulse counter
-  pulseCount++;
+  float flowMilliLitres = (flowRate.value / 60) * 1000;
+  return flowMilliLitres;
 }
 
-
-void logFlowData()
+float measureTotalVolume(float calibrationFactor)
 {
-  Serial.print("Flow rate: ");
-  Serial.print(flowRate);
-  Serial.print(" L/min");
-  Serial.print("\tTotal: ");
-  Serial.print(totalMilliLitres);
-  Serial.println(" mL");
+  totalMilliLitres += flowVolume.value;
+  return totalMilliLitres;
+}
+
+float measurePressure(float calibrationFactor)
+{
+  float sensorValue = analogRead(PRESSURE_SENSOR_PIN);
+  float voltage = sensorValue * (5.0 / 1023.0);
+  float pressureMPa = (voltage - 0.5) * (10.0 / 4.0);
+  return pressureMPa;
+}
+
+void updateParameter(SensorData &parameterSet)
+{
+  parameterSet.value = parameterSet.measureFunction(parameterSet.calibrationFactor);
+}
+
+void logMeasuredParameter(SensorData &parameterSet)
+{
+  Serial.print(parameterSet.name);
+  Serial.print(": ");
+  Serial.print(parameterSet.value);
+  Serial.print(" ");
+  Serial.println(parameterSet.unit);
+}
+
+// Interrupt Service Routine
+void pulseCounter()
+{
+  pulseCount++;
 }
